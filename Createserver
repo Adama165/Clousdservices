@@ -1,0 +1,111 @@
+import openstack
+import base64
+import os
+
+def clearconsole():
+    os.system('cls' if os.name == 'nt' else 'clear')
+def list_ips():
+    for server in conn.compute.servers():
+        if 'Created_from_Script' in server.tags:
+            for i in server.addresses:
+                for entry in server.addresses[i]:
+                    for ip in entry:
+                        if entry[ip] == 'floating':
+                            print("Server name:", server.name, "\nIP-adress:", entry['addr'])
+user_input = ""
+conn = openstack.connect(cloud='openstack')
+while user_input.lower() != 'exit':
+
+    print('_'*26)
+    print('MENY'.center(26))
+    print('_'*26)
+    print('create | Create web server')
+    print('delete | Delete web server')
+    print('list   | List   web server')
+    print('_'*26)
+    print('exit   | Close')
+    print('_'*26)
+    user_input = input(' > ')
+    print("_" * 26)
+    if user_input.lower() == 'create':
+        server_name = input('Servernamn > ')
+        personal_message = input('Servermeddelande >')
+        def b64(s):
+            s = s.encode('utf-8')
+            s = base64.b64encode(s)
+            s = s.decode('utf-8')
+            return s
+
+
+        image = conn.compute.find_image('UbuntuCloud 21.10')
+        flavor = conn.compute.find_flavor('f1.Medium')
+        network = conn.network.find_network('Mynetwork')
+        keypair = conn.compute.find_keypair('MyKeypair')
+
+        user_data = f"#!/bin/bash -x\nhtmlinput='\n<html>\n\t<body>\n\t\t{personal_message}\n\t</body>\n</html>'\napt-get update\napt-get install nginx -y\nrm /var/www/html/index.nginx-debian.html\ntouch /var/www/html/index.html\necho \"$htmlinput\" > /var/www/html/index.html"
+
+        user_data = b64(user_data)
+
+        server = conn.compute.create_server(
+            name=server_name,
+            image_id=image.id,
+            flavor_id=flavor.id,
+            networks=[{'uuid': network.id}],
+            key_name=keypair.name,
+            security_groups=[{'name': 'MySecurityGroup'}],
+            user_data=user_data,
+            tags=['Created_from_Script']
+        )
+
+        external = conn.network.find_network('external')
+        ip = conn.network.create_ip(floating_network_id=external.id)
+
+        conn.compute.wait_for_server(server)
+
+        conn.compute.add_floating_ip_to_server(server, ip.floating_ip_address)
+
+        print(server_name, "has been created")
+        input("Press enter to continue")
+        clearconsole()
+    elif user_input.lower() == 'list':
+        list_ips()
+        print('_'*26)
+
+        input("Press enter to continue")
+        clearconsole()
+    elif user_input.lower() == 'delete':
+        list_ips()
+        print("_" * 26)
+        server_deletion=False
+        input_delete = input(str('Floating IP > '))
+        for server in conn.compute.servers():
+            if server_deletion == True:
+                break
+            if 'Created_from_Script' in server.tags:
+                for ipentry in server.addresses:
+                    for adress_list in server.addresses[ipentry]:
+                        for adress_list2 in adress_list:
+                            if adress_list[adress_list2] == "floating":
+                                if input_delete == adress_list["addr"]:
+                                    server_find = conn.compute.find_server(server.id)
+                                    ip_find = conn.network.find_ip(adress_list['addr'])
+                                    delete_float = conn.network.delete_ip(ip_find)
+                                    delete_server = conn.compute.delete_server(server_find)
+                                    print("_"*26)
+                                    print(input_delete, 'Has been deleted.')
+                                    print("_" * 26)
+                                    server_deletion=True
+                                else:
+                                    print("_" * 26)
+                                    print("no match")
+
+        input("Press enter to continue")
+        clearconsole()
+    elif user_input == "exit":
+        print("Exiting")
+        input("Press enter to continue")
+        clearconsole()
+    else:
+        print(user_input,"is not a recognized command")
+        input("Press enter to continue")
+        clearconsole()
