@@ -1,0 +1,80 @@
+from flask import Flask, request
+import openstack
+
+conn = openstack.connect(cloud='openstack')
+
+app = Flask(__name__)
+
+
+@app.route('/')
+def index():
+    return 'INDEX'
+
+@app.route('/create-wp-instances/<server_name>')
+def create_wp_instances(server_name):
+
+    image = conn.compute.find_image('WordpressInstalled')
+    flavor = conn.compute.find_flavor('f1.Medium')
+    network = conn.network.find_network('Mynetwork')
+    keypair = conn.compute.find_keypair('MyKeypair')
+
+    server = conn.compute.create_server(
+        name=server_name,
+        image_id=image.id,
+        flavor_id=flavor.id,
+        networks=[{'uuid': network.id}],
+        key_name=keypair.name,
+        security_groups=[{'name': 'MySecurityGroup'}],
+        tags=['Created_from_API']
+    )
+
+    external = conn.network.find_network('external')
+    ip = conn.network.create_ip(floating_network_id=external.id)
+
+    conn.compute.wait_for_server(server)
+
+    conn.compute.add_floating_ip_to_server(server, ip.floating_ip_address)
+
+    return f"{server_name} created with id: {server.id}"
+
+@app.route('/list-wp-instances')
+def list_wp_instances():
+    l = []
+    for server in conn.compute.servers():
+        if 'Created_from_API' in server.tags:
+            s = {
+                'name' : server.name,
+                'ip' : server.addresses['Mynetwork'][1]['addr'],
+                'id' : server.id
+            }
+            l.append(s)
+    return {'servers' : l}
+
+@app.route('/delete-wp-instances/')
+def delete_wp_instances():
+    server_id = request.args.get('id', 'inge svar')
+    server_ip = request.args.get('ip', 'inge svar')
+    message = "not successfull"
+    for server in conn.compute.servers():
+        if 'Created_from_API' in server.tags:
+            if server_id == server.id:
+
+                server_find = conn.compute.find_server(server.id)
+                ip_find = conn.network.find_ip(server.addresses['Mynetwork'][1]['addr'])
+                delete_float = conn.network.delete_ip(ip_find)
+                delete_server = conn.compute.delete_server(server_find)
+                message = server_id + " has been successfully been deleted"
+
+            elif server_ip == server.addresses['Mynetwork'][1]['addr']:
+
+                server_find = conn.compute.find_server(server.id)
+                ip_find = conn.network.find_ip(server.addresses['Mynetwork'][1]['addr'])
+                delete_float = conn.network.delete_ip(ip_find)
+                delete_server = conn.compute.delete_server(server_find)
+                message = server_ip + " has been successfully been deleted"
+
+    return f"Server deletion: {message}"
+
+
+if __name__ == '__main__':
+    app.run(port=8080)
